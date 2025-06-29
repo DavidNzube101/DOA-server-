@@ -1,0 +1,17 @@
+{
+  "name": "doa-matchmaking-server",
+  "version": "1.0.0",
+  "main": "matchmaking.cjs",
+  "type": "module",
+  "scripts": {
+    "start": "node matchmaking.cjs"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@solana/web3.js": "^1.98.2",
+    "borsh": "^2.0.0",
+    "bs58": "^6.0.0",
+    "dotenv": "^17.0.0",
+    "socket.io": "^4.7.5"
+  }
+}
