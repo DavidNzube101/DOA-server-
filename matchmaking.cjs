@@ -7,7 +7,7 @@ const { Connection, PublicKey, Transaction, TransactionInstruction, Keypair, Sys
 const { sha256 } = require('@noble/hashes/sha256');
 const borsh = require('borsh');
 const fs = require('fs');
-const idl = JSON.parse(fs.readFileSync(__dirname + '/idl.json', 'utf8'));
+const path = require('path');
 const bs58 = require('bs58');
 
 const server = http.createServer()
@@ -31,11 +31,26 @@ const battleDeadlines = new Map() // Track battle deadlines for auto-resolution
 const processedBattles = new Set();
 
 // Load server authority keypair from config string (copy from nuxt.config.ts or use process.env)
-const serverAuthKeypairArray = JSON.parse(process.env.SERVER_AUTH_KEYPAIR || '[61,249,35,240,89,226,101,89,86,154,227,218,12,139,225,91,224,228,129,221,232,53,12,234,211,193,187,46,255,95,209,195,21,26,57,236,80,176,186,109,41,150,71,84,88,251,65,155,36,143,69,45,25,228,161,8,90,137,6,170,58,22,111,33]');
+const serverAuthKeypairArray = JSON.parse(process.env.SERVER_AUTH_KEYPAIR || '');
 const serverAuthority = Keypair.fromSecretKey(Uint8Array.from(serverAuthKeypairArray));
 
 // At the top of the file, add:
 const socketWallets = new Map();
+
+// Dynamic IDL loading based on environment
+const isProduction = process.env.NODE_ENV === 'production'
+const idlPath = isProduction
+  ? path.join(__dirname, 'gorbagana_program_idl.json')
+  : path.join(__dirname, 'solana_program_idl.json')
+
+let idl
+try {
+  idl = JSON.parse(fs.readFileSync(idlPath, 'utf8'))
+  console.log(`[SERVER] Loaded IDL from ${idlPath}`)
+} catch (err) {
+  console.error(`[SERVER] Failed to load IDL from ${idlPath}:`, err)
+  process.exit(1)
+}
 
 // Helper: Calculate Anchor discriminator
 function getInstructionDiscriminator(name) {
