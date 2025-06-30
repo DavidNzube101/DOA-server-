@@ -819,7 +819,7 @@ setInterval(() => {
   }
 }, 30000); // Check every 30 seconds
 
-const PORT = process.env.PORT || 4000
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-  console.log(`[SERVER] Matchmaking server running on port ${PORT}`)
-}) 
+  console.log(`[SERVER] Matchmaking server running on port ${PORT}`);
+}); 
