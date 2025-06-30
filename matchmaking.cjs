@@ -11,8 +11,16 @@ const idl = JSON.parse(fs.readFileSync(__dirname + '/idl.json', 'utf8'));
 const bs58 = require('bs58');
 
 const server = http.createServer()
+
+// Read allowed origins from environment variable (comma-separated)
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3000']
+
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
 })
 
 const queue = []

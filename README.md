@@ -20,6 +20,7 @@ This is the backend server for Daughters of Aether, responsible for matchmaking,
    - `SOLANA_DEVNET_RPC_URL`
    - `DEVELOPMENT_PROGRAM_ID`
    - `SERVER_AUTH_KEYPAIR`
+   - `ALLOWED_ORIGINS` (comma-separated list of allowed frontend origins for CORS, e.g. `http://localhost:3000,https://daughter-of-aether.vercel.app`)
    - etc.
 
 3. **Run the server:**
