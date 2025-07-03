@@ -886,23 +886,32 @@ setInterval(() => {
 
 async function handleCancelGameRefund(battlePubkey) {
   const info = unmatchedBattles.get(battlePubkey)
-  if (!info) return
+  if (!info) {
+    console.log(`[SERVER][REFUND] No unmatched battle info for ${battlePubkey}`)
+    return
+  }
   const { playerWallet, socketId } = info
+  console.log(`[SERVER][REFUND] Called for battlePubkey: ${battlePubkey}, playerWallet: ${playerWallet}`)
   try {
     // Fetch battle account to confirm unmatched
     const connection = new Connection(RPC_URL, 'confirmed')
+    console.log(`[SERVER][REFUND] Fetching account info for ${battlePubkey}`)
     const accountInfo = await connection.getAccountInfo(new PublicKey(battlePubkey))
     if (!accountInfo) {
       unmatchedBattles.delete(battlePubkey)
+      console.log(`[SERVER][REFUND] No account info found for ${battlePubkey}, removed from unmatchedBattles`)
       return
     }
     // Manual decode (reuse your decodeBattleAccount function)
+    console.log(`[SERVER][REFUND] Decoding battle account for ${battlePubkey}`)
     const battleState = decodeBattleAccount(accountInfo.data)
     if (battleState.players[1] && battleState.players[1] !== (new PublicKey(0).toBase58()) && battleState.players[1] !== (new PublicKey('11111111111111111111111111111111').toBase58())) {
       unmatchedBattles.delete(battlePubkey)
+      console.log(`[SERVER][REFUND] Battle already matched for ${battlePubkey}, removed from unmatchedBattles`)
       return // Already matched
     }
     // Build cancel_game instruction
+    console.log(`[SERVER][REFUND] Building cancel_game instruction for ${battlePubkey}`)
     const discriminator = getInstructionDiscriminator('cancel_game')
     const data = discriminator // no args
     const keys = [
@@ -919,13 +928,16 @@ async function handleCancelGameRefund(battlePubkey) {
     tx.feePayer = serverAuthority.publicKey
     tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
     tx.sign(serverAuthority)
+    console.log(`[SERVER][REFUND] Sending cancel_game transaction for ${battlePubkey}`)
     const txid = await connection.sendRawTransaction(tx.serialize())
     await connection.confirmTransaction(txid, 'confirmed')
     unmatchedBattles.delete(battlePubkey)
+    console.log(`[SERVER][REFUND] Refund successful for ${battlePubkey}, txid: ${txid}`)
     // Notify player
     const socket = io.sockets.sockets.get(socketId)
     if (socket) socket.emit('stake_refunded', { battle: battlePubkey, txid })
   } catch (e) {
+    console.error(`[SERVER][REFUND] Refund failed for ${battlePubkey}:`, e)
     const socket = io.sockets.sockets.get(socketId)
     if (socket) socket.emit('stake_refund_failed', { battle: battlePubkey, error: e.message })
   }
