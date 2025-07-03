@@ -24,6 +24,7 @@ const io = new Server(server, {
 })
 
 const queue = []
+const queueTimeouts = new Map() // Map socket.id to timeout
 const pairs = new Map()
 const battleDeadlines = new Map() // Track battle deadlines for auto-resolution
 
@@ -292,6 +293,22 @@ io.on('connection', (socket) => {
       walletPubkey: data?.walletPubkey,
       battleAccountPubkey: data?.battleAccountPubkey
     });
+
+    // Start matchmaking timeout for this socket
+    if (queueTimeouts.has(socket.id)) {
+      clearTimeout(queueTimeouts.get(socket.id))
+    }
+    queueTimeouts.set(socket.id, setTimeout(() => {
+      // Remove from queue if still present
+      const idx = queue.findIndex(p => p.socket.id === socket.id)
+      if (idx !== -1) queue.splice(idx, 1)
+      queueTimeouts.delete(socket.id)
+      try {
+        socket.emit('match_timeout')
+      } catch (e) {
+        // ignore
+      }
+    }, 40000)) // 40 seconds
 
     // Try to match if 2+ in queue
     if (queue.length >= 2) {
@@ -696,7 +713,11 @@ io.on('connection', (socket) => {
     // Remove from queue
     const idx = queue.findIndex(p => p.socket.id === socket.id)
     if (idx !== -1) queue.splice(idx, 1)
-
+    // Clear matchmaking timeout
+    if (queueTimeouts.has(socket.id)) {
+      clearTimeout(queueTimeouts.get(socket.id))
+      queueTimeouts.delete(socket.id)
+    }
     // Notify opponent if paired (treat as forfeit)
     const opponentId = pairs.get(socket.id)
     if (opponentId) {
