@@ -310,7 +310,7 @@ io.on('connection', (socket) => {
     if (queueTimeouts.has(socket.id)) {
       clearTimeout(queueTimeouts.get(socket.id))
     }
-    queueTimeouts.set(socket.id, setTimeout(() => {
+    queueTimeouts.set(socket.id, setTimeout(async () => {
       // Remove from queue if still present
       const idx = queue.findIndex(p => p.socket.id === socket.id)
       if (idx !== -1) queue.splice(idx, 1)
@@ -320,10 +320,28 @@ io.on('connection', (socket) => {
       } catch (e) {
         // ignore
       }
-      // Schedule refund after deadline
-      setTimeout(() => {
-        handleCancelGameRefund(data.battleAccountPubkey)
-      }, Math.max(0, deadline * 1000 - Date.now()))
+      // Schedule refund after on-chain deadline
+      try {
+        const connection = new Connection(RPC_URL, 'confirmed')
+        const accountInfo = await connection.getAccountInfo(new PublicKey(data.battleAccountPubkey))
+        if (accountInfo) {
+          const battleState = decodeBattleAccount(accountInfo.data)
+          const waitMs = (battleState.deadline * 1000) - Date.now()
+          if (waitMs > 0) {
+            console.log(`[SERVER][REFUND] Scheduling refund for ${data.battleAccountPubkey} in ${waitMs}ms (after on-chain deadline)`) 
+            setTimeout(() => {
+              handleCancelGameRefund(data.battleAccountPubkey)
+            }, waitMs)
+          } else {
+            console.log(`[SERVER][REFUND] Deadline already passed for ${data.battleAccountPubkey}, refunding immediately`)
+            handleCancelGameRefund(data.battleAccountPubkey)
+          }
+        } else {
+          console.log(`[SERVER][REFUND] No account info for ${data.battleAccountPubkey}, cannot schedule refund`)
+        }
+      } catch (e) {
+        console.error(`[SERVER][REFUND] Error scheduling refund for ${data.battleAccountPubkey}:`, e)
+      }
     }, 40000)) // 40 seconds
 
     // Try to match if 2+ in queue
