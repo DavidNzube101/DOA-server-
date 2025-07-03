@@ -9,6 +9,7 @@ const borsh = require('borsh');
 const fs = require('fs');
 const path = require('path');
 const bs58 = require('bs58');
+const anchor = require('@project-serum/anchor')
 
 const server = http.createServer()
 
@@ -280,6 +281,8 @@ function comparePublicKeys(a, b) {
   return normA === normB;
 }
 
+const unmatchedBattles = new Map() // battlePubkey -> { playerWallet, deadline, socketId }
+
 io.on('connection', (socket) => {
   console.log(`[SERVER] Connected: ${socket.id}`)
 
@@ -293,6 +296,16 @@ io.on('connection', (socket) => {
       walletPubkey: data?.walletPubkey,
       battleAccountPubkey: data?.battleAccountPubkey
     });
+
+    // Store unmatched battle info for refund
+    // You must have access to the battle's deadline (from on-chain or creation logic)
+    // For this example, assume deadline is now + 40 seconds
+    const deadline = Math.floor(Date.now() / 1000) + 40
+    unmatchedBattles.set(data.battleAccountPubkey, {
+      playerWallet: data.walletPubkey,
+      deadline,
+      socketId: socket.id
+    })
 
     // Start matchmaking timeout for this socket
     if (queueTimeouts.has(socket.id)) {
@@ -308,6 +321,10 @@ io.on('connection', (socket) => {
       } catch (e) {
         // ignore
       }
+      // Schedule refund after deadline
+      setTimeout(() => {
+        handleCancelGameRefund(data.battleAccountPubkey)
+      }, Math.max(0, deadline * 1000 - Date.now()))
     }, 40000)) // 40 seconds
 
     // Try to match if 2+ in queue
@@ -867,6 +884,37 @@ setInterval(() => {
     }
   }
 }, 30000); // Check every 30 seconds
+
+async function handleCancelGameRefund(battlePubkey) {
+  const info = unmatchedBattles.get(battlePubkey)
+  if (!info) return
+  const { playerWallet, socketId } = info
+  // Fetch battle account from Solana
+  try {
+    const provider = new anchor.AnchorProvider(new anchor.web3.Connection(RPC_URL, 'confirmed'), new anchor.Wallet(serverAuthority), {})
+    const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
+    const program = new anchor.Program(idl, PROGRAM_ID, provider)
+    const battleAccount = await program.account.battle.fetch(battlePubkey)
+    if (battleAccount.players[1].toBase58() !== anchor.web3.PublicKey.default.toBase58()) {
+      unmatchedBattles.delete(battlePubkey)
+      return // Already matched, do not refund
+    }
+    // Call cancel_game
+    await program.methods.cancelGame().accounts({
+      battle: battlePubkey,
+      playerOne: playerWallet,
+      authority: serverAuthority.publicKey
+    }).signers([serverAuthority]).rpc()
+    unmatchedBattles.delete(battlePubkey)
+    // Notify player
+    const socket = io.sockets.sockets.get(socketId)
+    if (socket) socket.emit('stake_refunded', { battle: battlePubkey })
+  } catch (e) {
+    // Optionally notify player of failure
+    const socket = io.sockets.sockets.get(info.socketId)
+    if (socket) socket.emit('stake_refund_failed', { battle: battlePubkey, error: e.message })
+  }
+}
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
