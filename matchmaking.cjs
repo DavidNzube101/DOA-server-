@@ -326,15 +326,22 @@ io.on('connection', (socket) => {
         const accountInfo = await connection.getAccountInfo(new PublicKey(data.battleAccountPubkey))
         if (accountInfo) {
           const battleState = decodeBattleAccount(accountInfo.data)
-          const waitMs = (battleState.deadline * 1000) - Date.now()
+          const bufferMs = 5000; // 5 seconds buffer
+          // Get cluster time
+          const slot = await connection.getSlot()
+          const clusterTime = await connection.getBlockTime(slot)
+          console.log(`[SERVER][REFUND] On-chain deadline: ${battleState.deadline}, Cluster time: ${clusterTime}, Local time: ${Math.floor(Date.now()/1000)}`)
+          const waitMs = (battleState.deadline * 1000) - Date.now() + bufferMs
           if (waitMs > 0) {
-            console.log(`[SERVER][REFUND] Scheduling refund for ${data.battleAccountPubkey} in ${waitMs}ms (after on-chain deadline)`) 
+            console.log(`[SERVER][REFUND] Scheduling refund for ${data.battleAccountPubkey} in ${waitMs}ms (after on-chain deadline + buffer)`) 
             setTimeout(() => {
               handleCancelGameRefund(data.battleAccountPubkey)
             }, waitMs)
           } else {
-            console.log(`[SERVER][REFUND] Deadline already passed for ${data.battleAccountPubkey}, refunding immediately`)
-            handleCancelGameRefund(data.battleAccountPubkey)
+            console.log(`[SERVER][REFUND] Deadline already passed for ${data.battleAccountPubkey}, refunding immediately (with buffer)`)
+            setTimeout(() => {
+              handleCancelGameRefund(data.battleAccountPubkey)
+            }, bufferMs)
           }
         } else {
           console.log(`[SERVER][REFUND] No account info for ${data.battleAccountPubkey}, cannot schedule refund`)
