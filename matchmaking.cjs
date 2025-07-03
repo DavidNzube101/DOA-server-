@@ -9,7 +9,6 @@ const borsh = require('borsh');
 const fs = require('fs');
 const path = require('path');
 const bs58 = require('bs58');
-const anchor = require('@project-serum/anchor')
 
 const server = http.createServer()
 
@@ -889,29 +888,45 @@ async function handleCancelGameRefund(battlePubkey) {
   const info = unmatchedBattles.get(battlePubkey)
   if (!info) return
   const { playerWallet, socketId } = info
-  // Fetch battle account from Solana
   try {
-    const provider = new anchor.AnchorProvider(new anchor.web3.Connection(RPC_URL, 'confirmed'), new anchor.Wallet(serverAuthority), {})
-    const idl = await anchor.Program.fetchIdl(PROGRAM_ID, provider)
-    const program = new anchor.Program(idl, PROGRAM_ID, provider)
-    const battleAccount = await program.account.battle.fetch(battlePubkey)
-    if (battleAccount.players[1].toBase58() !== anchor.web3.PublicKey.default.toBase58()) {
+    // Fetch battle account to confirm unmatched
+    const connection = new Connection(RPC_URL, 'confirmed')
+    const accountInfo = await connection.getAccountInfo(new PublicKey(battlePubkey))
+    if (!accountInfo) {
       unmatchedBattles.delete(battlePubkey)
-      return // Already matched, do not refund
+      return
     }
-    // Call cancel_game
-    await program.methods.cancelGame().accounts({
-      battle: battlePubkey,
-      playerOne: playerWallet,
-      authority: serverAuthority.publicKey
-    }).signers([serverAuthority]).rpc()
+    // Manual decode (reuse your decodeBattleAccount function)
+    const battleState = decodeBattleAccount(accountInfo.data)
+    if (battleState.players[1] && battleState.players[1] !== (new PublicKey(0).toBase58()) && battleState.players[1] !== (new PublicKey('11111111111111111111111111111111').toBase58())) {
+      unmatchedBattles.delete(battlePubkey)
+      return // Already matched
+    }
+    // Build cancel_game instruction
+    const discriminator = getInstructionDiscriminator('cancel_game')
+    const data = discriminator // no args
+    const keys = [
+      { pubkey: new PublicKey(battlePubkey), isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(playerWallet), isSigner: false, isWritable: true },
+      { pubkey: serverAuthority.publicKey, isSigner: true, isWritable: false },
+    ]
+    const ix = new TransactionInstruction({
+      programId: new PublicKey(PROGRAM_ID),
+      keys,
+      data,
+    })
+    const tx = new Transaction().add(ix)
+    tx.feePayer = serverAuthority.publicKey
+    tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
+    tx.sign(serverAuthority)
+    const txid = await connection.sendRawTransaction(tx.serialize())
+    await connection.confirmTransaction(txid, 'confirmed')
     unmatchedBattles.delete(battlePubkey)
     // Notify player
     const socket = io.sockets.sockets.get(socketId)
-    if (socket) socket.emit('stake_refunded', { battle: battlePubkey })
+    if (socket) socket.emit('stake_refunded', { battle: battlePubkey, txid })
   } catch (e) {
-    // Optionally notify player of failure
-    const socket = io.sockets.sockets.get(info.socketId)
+    const socket = io.sockets.sockets.get(socketId)
     if (socket) socket.emit('stake_refund_failed', { battle: battlePubkey, error: e.message })
   }
 }
