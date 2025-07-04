@@ -455,6 +455,12 @@ io.on('connection', (socket) => {
     if (opponentId) io.to(opponentId).emit('take_damage', amount)
   })
 
+  socket.on('player_action', (data) => {
+    const opponentId = pairs.get(socket.id)
+    console.log(`[SERVER] player_action from ${socket.id} to ${opponentId}:`, data)
+    if (opponentId) io.to(opponentId).emit('opponent_action', data)
+  })
+
   socket.on('game_end', (result) => {
     const opponentId = pairs.get(socket.id)
     console.log(`[SERVER] game_end from ${socket.id} to ${opponentId}:`, result)
